@@ -18,13 +18,13 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[image_cal_orig]: ./output_images/calibration3.jpg "Original Calibration Image"
+[image_cal_orig]: ./camera_cal/calibration3.jpg "Original Calibration Image"
 [image1]: ./output_images/calibration3_output.jpg "Identified Chessboard Corners"
 [image2]: ./output_images/calibration3_undist.jpg "Undistorted Chessboard"
 [image_road_undist]: ./output_images/road_undist.jpg "Road Transformed"
 [image_binary]: ./output_images/color_binary.png "Binary Example"
 [image_warped]: ./output_images/warped.png "Warp Example"
-[image5]: ./output_images/color_fit_lines.jpg "Fit Visual"
+[image_fitted_line]: ./output_images/fitted_line.png "Fit Visual"
 [image_output]: ./output_images/output_solidWhiteRight.jpg "Output"
 [video1]: ./project_video.mp4 "Video"
 
@@ -61,7 +61,7 @@ The distortion coefficients and camera calibration matrix are loaded from the sa
 
 ####2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 
-The `detect_edges` function in pipeline.py converts the input BGR image to HLS color space. The L and S channels are extracted since they contain the most relevant lighting and saturation features that aid in line/edge detection. 
+The `detect_edges()` function (~lines 136-169) in `pipeline.py` converts the input BGR image to HLS color space. The L and S channels are extracted since they contain the most relevant lighting and saturation features that aid in line/edge detection. 
 
 The Sobel function is used to compute the gradient of the image in the x and y directions and they are then thresholded and re-stacked to create a binary image.
 
@@ -98,30 +98,37 @@ This perspective transform was verified by drawing the `src` and `dst` points on
 
 ####4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
-Blind search:
+Blind search: (`blind_identify_lane_pixels()` in `pipeline.py`)
 * When starting from scratch, a histogram-based search is performed on the warped and thresholded image. 
 * The histogram is divided into two halves (left and right) and the peaks are identified in each half. The x-coord of the peak is taken to be the starting point to search for the lane line pixels. 
-* A sliding window of 48x48 pixels is applied around the above-computed starting point and all non-zero pixels are assumed to be potential lane line points.
+* A sliding window of 48x48 pixels is applied around the above-computed starting point and all non-zero pixels are assumed to be potential lane line points. (`sliding_window()` in `pipeline.py`)
 * The histogram and peak calculations proceed by sliding the histogram window up in every iteration till the top of the warped image is reached, and the sliding window algorithm is applied to accrue potential lane line points.
-* np.polyfit is then used to find a second order polynomial to fit the points identified in the above algorithm.
+* `np.polyfit` is then used to find a second order polynomial to fit the points identified in the above algorithm.
 
 Here is an example of the fitted lane line:
 
-![alt text][image5]
+![alt text][image_fitted_line]
 
-Intelligent search:
+Intelligent search: (`identify_lane_pixels()` in `pipeline.py`)
 * In a video stream, the lane line estimation from the previous frame can be used to aid in the detection for the current frame, since the lane location can not change significantly between two consecutive frames.
 * Instead of taking histogram of the warped images, this approach uses the fitted lane lines/curves from the previous frame and uses the same sliding window algorithm with a window of 48x48 along the previous frame's fitted curve to search for the current frame's lane line pixels. 
-* np.polyfit is then used to find a second order polynomial to fit the new points identified.
+* `np.polyfit` is then used to find a second order polynomial to fit the new points identified.
 
-Smoothing:
+Smoothing (`smooth_fit()` in `Lane.py`):
 * In order to smooth out the detection, the lane line points and polynomial fit coefficients are averaged over the previous 10 frames.
 
 ####5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
-I did this in lines # through # in my code in `my_other_file.py`
-
 The radius of curvature has been estimated as described in the lecture notes. 
+`get_radius_curvature()` in `Lane.py`
+
+In `Lane.py`, vehicle position has been estimated by calculating the number of pixels by which the base of the lane line is separated from the center of the image. This is then multipled by the factor to convert pixels to metres. This is computed for both the left and right lanes, and the sum of it is then used to determine if the vehicle is to the left or the right off the center in `add_diag_text()` in `pipeline.py`.  
+
+`    def get_vehicle_position(self):
+        xm_per_pix = 3.7/700 # meteres per pixel in x dimension
+        pixels_off_center = int(self.get_x(np.max(self.ally)) - (1280/2))
+        self.line_base_pos = xm_per_pix * pixels_off_center
+        return self.line_base_pos`
 
 ####6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
