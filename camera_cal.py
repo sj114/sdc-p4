@@ -7,7 +7,6 @@ import pickle
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import glob
 
 # Universal parameters
@@ -29,11 +28,10 @@ objp[:,:2] = np.mgrid[0:nx,0:ny].T.reshape(-1,2)
 ''' Function to plot images for data visualization '''
 def plot_images_fxn(images):
     
-    # Create figure with 5x4 sub-plots.
-    fig, axes = plt.subplots(5, 4)
+    # Create figure with 4x4 sub-plots.
+    fig, axes = plt.subplots(4, 4)
     fig.subplots_adjust(hspace=0.3, wspace=0.3)
     
-    plt.title("Camera cal images")
     for i, ax in enumerate(axes.flat):
         if i >= len(images):
             break
@@ -41,16 +39,11 @@ def plot_images_fxn(images):
         # Plot image.
         ax.imshow(images[i], cmap='binary')
 
-        #xlabel = "Steering angle: {0}".format(angles[i])
-
-        # Show the angles as the label on the x-axis.
-        #ax.set_xlabel(xlabel)
-        #ax.set_title(labels[i])
-        
         # Remove ticks from the plot.
         ax.set_xticks([])
         ax.set_yticks([])
     
+    fig.suptitle("Camera cal images")
     fig.savefig('camera_calibrated.png', bbox_inches='tight')
     plt.close()
 
@@ -74,6 +67,8 @@ for fname in images:
         # Draw and display the corners
         cv2.drawChessboardCorners(img, (nx, ny), corners, ret)
         plot_images.append(img)
+        output_fname = '{}_output.jpg'.format(fname.split(".jpg")[0])
+        cv2.imwrite(output_fname, img)
     else:
         print ("Failed to find chessboard corners: ", fname)
 
@@ -83,6 +78,15 @@ plot_images_fxn(plot_images)
 # Calibrate the camera!
 ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1],None,None)
 print (ret)
+
+# Undistort the above images
+for fname in images:
+    # Read in image
+    img = cv2.imread(fname)
+
+    undist = cv2.undistort(img, mtx, dist, None, mtx)    
+    output_fname = '{}_undist.jpg'.format(fname.split(".jpg")[0])
+    cv2.imwrite(output_fname, undist)
 
 # Save the data for easy access
 pickle_file = 'camera_cal.pickle'
