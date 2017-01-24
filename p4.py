@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 # Import everything needed to edit/save/watch video clips
-from moviepy.editor import VideoFileClip
+from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
 from IPython.display import HTML
 
 # Read in the saved camera matrix and distortion coefficients
@@ -38,8 +38,50 @@ class Lane(object):
         #x values for detected line pixels
         self.allx = None  
         #y values for detected line pixels
-        self.ally = None
+        self.ally = np.linspace(0, 100, num=101)*7.2
 
+    def compute_fit(self, lane_points):
+        # Fit a second order polynomial to each fake lane line
+        _yvals = np.array(lane_points)[:,1]
+        _xvals = np.array(lane_points)[:,0]
+        self.current_fit = np.polyfit(_yvals, _xvals, 2)
+
+        # Plot up the fake data
+        #plt.plot(leftx, left_yvals, 'o', color='red')
+        #plt.plot(rightx, right_yvals, 'o', color='blue')
+        #plt.xlim(0, 1280)
+        #plt.ylim(0, 720)
+        self.allx = self.current_fit[0]*self.ally**2 \
+                        + self.current_fit[1]*self.ally \
+                        + self.current_fit[2]
+
+        #plt.plot(left_fitx, left_yvals, color='green', linewidth=3)
+        #plt.plot(right_fitx, right_yvals, color='green', linewidth=3)
+        #plt.gca().invert_yaxis() # to visualize as we do the images
+        #plt.show()
+
+    def get_x(self, y):
+        x = self.current_fit[0]*y**2 + self.current_fit[1]*y + self.current_fit[2]
+        return x
+
+    def get_radius_curvature(self):
+        # Define conversions in x and y from pixels space to meters
+        ym_per_pix = 30/720 # meters per pixel in y dimension
+        xm_per_pix = 3.7/700 # meteres per pixel in x dimension
+
+        y_eval = np.max(self.ally)/2
+
+        fit_cr = np.polyfit(self.ally*ym_per_pix, self.allx*xm_per_pix, 2)
+        self.radius_of_curvature = ((1 + (2*fit_cr[0]*y_eval + fit_cr[1])**2)**1.5) \
+                                     /np.absolute(2*fit_cr[0])
+        # Now our radius of curvature is in meters
+        #print(self.radius_of_curvature, 'm')
+
+    def get_vehicle_position(self):
+        xm_per_pix = 3.7/700 # meteres per pixel in x dimension
+        pixels_off_center = int(self.get_x(np.max(self.ally)) - (1280/2))
+        self.line_base_pos = xm_per_pix * pixels_off_center
+        return self.line_base_pos
 
 def order_points(pts):
     # initialzie a list of coordinates that will be ordered
@@ -178,7 +220,6 @@ def my_four_point_transform(image, pts):
     return M, Minv, maxWidth, maxHeight
 
 def detect_edges(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
-    img = np.copy(img)
     undist = cv2.undistort(img, mtx, dist, None, mtx)    
     img = np.copy(undist)
     
@@ -228,12 +269,24 @@ def do_birds_eye(img, M):
     warped = cv2.warpPerspective(img, M, (1280,720)) #650,330 if section of lane
     return warped
    
-def sliding_window(image, stepSize, windowSize):
-    # slide a window across the image
-    for y in xrange(0, image.shape[0], stepSize):
-        for x in xrange(0, image.shape[1], stepSize):
-            # yield the current window
-            yield (x, y, image[y:y + windowSize[1], x:x + windowSize[0]])
+''' Create a sliding window and find all lane points within it
+'''
+def sliding_window(img, step_size, window_size, index, lane_points):
+    window = img[img.shape[0]-(step_size+window_size):img.shape[0]-step_size, index - window_size/2:index + window_size/2]
+    l_channel = window[:,:,1]
+    s_channel = window[:,:,2]
+    for i in range(window_size):
+        for j in range(window_size):
+            if window.shape[0] != window_size or window.shape[1] != window_size:
+                print("Hey, we have a prob!", step_size, index)
+
+            if(l_channel[i, j] != 0 or s_channel[i, j] != 0):
+                x_coord = index - window_size/2 + j
+                y_coord = img.shape[0]-(step_size+window_size) + i
+                lane_points.append((x_coord,y_coord)) 
+                #all_points.append((x_coord,y_coord)) 
+
+    return lane_points
 
 import peakutils
 from peakutils.plot import plot as pplot
@@ -263,15 +316,13 @@ def blind_search(img):
 #    pplot(x, histogram[:,1], indexes)
 #    plt.title('First estimate')
 #    plt.show()
-#    for (x, y, window) in sliding_window(img, stepSize=16, windowSize=(48,48)):
 
     return index_l, index_r, hist_len_half
 
-def identify_lane_pixels(img, index_l, index_r):
+def blind_identify_lane_pixels(img, left_lane, right_lane):
 
-    if index_l < 0:
-        index_l, index_r, hist_len_half = blind_search(img)
-        print ("Performing a blind search")
+    index_l, index_r, hist_len_half = blind_search(img)
+    print ("Performing a blind search")
 
     histogram = np.sum(img[img.shape[0]//2:,:], axis=0)
     hist_len_half = int(len(histogram)/2)
@@ -322,94 +373,99 @@ def identify_lane_pixels(img, index_l, index_r):
         index_l_offset = index_l-hist_step
         index_r_offset = index_r-hist_step
 
-        window = img[img.shape[0]-(step_size+window_size):img.shape[0]-step_size, index_l - window_size/2:index_l + window_size/2]
-        h_channel = window[:,:,0]
-        l_channel = window[:,:,1]
-        s_channel = window[:,:,2]
-        for i in range(window_size):
-            for j in range(window_size):
-                if(l_channel[i, j] != 0 or s_channel[i, j] != 0):
-                    x_coord = index_l - window_size/2 + j
-                    y_coord = img.shape[0]-(step_size+window_size) + i
-                    left_lane_points.append((x_coord,y_coord)) 
-                    all_points.append((x_coord,y_coord)) 
-
-        window = img[img.shape[0]-(step_size+window_size):img.shape[0]-step_size, index_r - window_size/2:index_r + window_size/2]
-        h_channel = window[:,:,0]
-        l_channel = window[:,:,1]
-        s_channel = window[:,:,2]
-        for i in range(window_size):
-            for j in range(window_size):
-                if window.shape[0] != window_size or window.shape[1] != window_size:
-                    print("Hey, we have a prob!", step_size, index_r)
-
-                if(l_channel[i, j] != 0 or s_channel[i, j] != 0):
-                    x_coord = index_r - window_size/2 + j
-                    y_coord = img.shape[0]-(step_size+window_size) + i
-                    right_lane_points.append((x_coord,y_coord)) 
-                    all_points.append((x_coord,y_coord)) 
+        left_lane_points = sliding_window(img, step_size, window_size, index_l, left_lane_points)
+        right_lane_points = sliding_window(img, step_size, window_size, index_r, right_lane_points)
 
     #plt.scatter(*zip(*all_points))
     #plt.show()
 
-    # Fit a second order polynomial to each fake lane line
-    left_yvals = np.array(left_lane_points)[:,1]
-    leftx = np.array(left_lane_points)[:,0]
-    left_fit = np.polyfit(left_yvals, leftx, 2)
-    right_yvals = np.array(right_lane_points)[:,1]
-    rightx = np.array(right_lane_points)[:,0]
-    right_fit = np.polyfit(right_yvals, rightx, 2)
+    #compute fit
+    left_lane.compute_fit(left_lane_points)
+    right_lane.compute_fit(right_lane_points)
 
-    # Plot up the fake data
-    #plt.plot(leftx, left_yvals, 'o', color='red')
-    #plt.plot(rightx, right_yvals, 'o', color='blue')
-    #plt.xlim(0, 1280)
-    #plt.ylim(0, 720)
-    left_yvals = np.linspace(0, 100, num=101)*7.2
-    right_yvals = np.linspace(0, 100, num=101)*7.2
-    left_fitx = left_fit[0]*left_yvals**2 + left_fit[1]*left_yvals + left_fit[2]
-    right_fitx = right_fit[0]*right_yvals**2 + right_fit[1]*right_yvals + right_fit[2]
+    return left_lane, right_lane 
 
-    #plt.plot(left_fitx, left_yvals, color='green', linewidth=3)
-    #plt.plot(right_fitx, right_yvals, color='green', linewidth=3)
-    #plt.gca().invert_yaxis() # to visualize as we do the images
+def identify_lane_pixels(img, left_lane, right_lane):
+
+    # use sliding window to identify rest of the lane
+    window_size = 48
+    left_lane_points=[]
+    right_lane_points=[]
+    all_points=[]
+
+    for step_size in range(0, img.shape[0], window_size):
+
+        y = img.shape[0]-step_size
+        index_l = left_lane.get_x(y)
+        index_r = right_lane.get_x(y)
+
+        left_lane_points = sliding_window(img, step_size, window_size, index_l, left_lane_points)
+        right_lane_points = sliding_window(img, step_size, window_size, index_r, right_lane_points)
+
+    #plt.scatter(*zip(*all_points))
     #plt.show()
-    return left_yvals, right_yvals, left_fitx, right_fitx
 
-def draw_lanes(image, warped, Minv, left_yvals, right_yvals, left_fitx, right_fitx):
-    # Create an image to draw the lines on
-    
-    warp_zero = np.zeros_like(warped).astype(np.uint8)
-    #color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
-    color_warp = warp_zero
-    #print (warp_zero.shape, color_warp.shape)
+    #compute fit
+    left_lane.compute_fit(left_lane_points)
+    right_lane.compute_fit(right_lane_points)
+
+    return left_lane, right_lane 
+
+def draw_lanes(image, warped, Minv, left_lane, right_lane, vehicle_pos):
+
+    # Create an empty image to draw the lines on
+    color_warp = np.zeros_like(warped).astype(np.uint8)
 
     # Recast the x and y points into usable format for cv2.fillPoly()
-    pts_left = np.array([np.transpose(np.vstack([left_fitx, left_yvals]))])
-    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, right_yvals])))])
+    pts_left = np.array([np.transpose(np.vstack([left_lane.allx, left_lane.ally]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_lane.allx, right_lane.ally])))])
     pts = np.hstack((pts_left, pts_right))
 
     #print(pts)
 
     # Draw the lane onto the warped blank image
-    cv2.fillPoly(color_warp, np.int32([pts]), (0,255, 0))
+    cv2.fillPoly(color_warp, np.int32([pts]), (0, 255, 0))
 
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
     newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0])) 
     # Combine the result with the original image
     result = cv2.addWeighted(image, 1, newwarp, 0.3, 0)
+
+    # print diagnostics onto the image
+    text_color = (255,255,255)
+    text_str = 'Radius of curvature(left): %dm'%(left_lane.radius_of_curvature)
+    cv2.putText(result, text_str, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, text_color)
+    text_str = 'Radius of curvature(right): %dm'%(right_lane.radius_of_curvature)
+    cv2.putText(result, text_str, (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, text_color)
+
+    if (vehicle_pos) < 0:
+        text_str = 'Vehicle is %5.2fm left of center'%(-vehicle_pos)
+    elif (vehicle_pos) > 0:
+        text_str = 'Vehicle is %5.2fm right of center'%(vehicle_pos)
+    else:
+        text_str = 'Vehicle is at center'
+    cv2.putText(result, text_str, (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, text_color)
+
     return result
 
-''' Full pipeline to take in a camera image and return the lane-detected
-    image
-'''
 class LaneDetector(object):
+
+    to_plot = False
+
     def __init__(self):
         self.left_lane = Lane()
         self.right_lane = Lane()
         self.M = M
         self.Minv = Minv
 
+    def __plot(self, img):
+        if self.to_plot:
+            plt.imshow(img, cmap='binary')
+            plt.show()
+
+    ''' Full pipeline to take in a camera image and return the lane-detected
+        image
+    '''
     def pipeline(self, img):
 
         # detect edges in the image
@@ -422,24 +478,26 @@ class LaneDetector(object):
 
         # get a bird's eye view of the image
         img_bird_eye = do_birds_eye(color_binary, self.M)
-        #plt.imshow(img_bird_eye, cmap='binary')
-        #plt.title(fname)
-        #plt.show()
+        self.__plot(img_bird_eye)
 
         # identify the lane lines in the bird's eye image
-        if len(self.left_lane.recent_xfitted):
-            prev_right_x = self.right_lane.recent_xfitted[100]
-            prev_left_x = self.left_lane.recent_xfitted[100]
+        if self.left_lane.current_fit[0]:
+            self.left_lane, self.right_lane = identify_lane_pixels(img_bird_eye, self.left_lane, self.right_lane)
         else:
-            prev_left_x = -1
-            prev_right_x = -1
-        left_yvals, right_yvals, left_fitx, right_fitx = identify_lane_pixels(img_bird_eye, prev_left_x, prev_right_x)
-        #print(prev_left_x, prev_right_x)
-        self.left_lane.recent_xfitted = left_fitx
-        self.right_lane.recent_xfitted = right_fitx
+            print("First video frame")
+            self.left_lane, self.right_lane = blind_identify_lane_pixels(img_bird_eye, self.left_lane, self.right_lane)
+
+        # compute radius of curvature
+        self.left_lane.get_radius_curvature()
+        self.right_lane.get_radius_curvature()
+
+        # compute vehicle position
+        left_pos = self.left_lane.get_vehicle_position()
+        right_pos = self.right_lane.get_vehicle_position()
+        self.vehicle_pos = left_pos + right_pos
 
         # draw detected lanes back onto original image
-        output_image = draw_lanes(img, img_bird_eye, self.Minv, left_yvals, right_yvals, left_fitx, right_fitx)
+        output_image = draw_lanes(img, img_bird_eye, self.Minv, self.left_lane, self.right_lane, self.vehicle_pos)
         return output_image
 
 images = glob.glob('./test_images/*.jpg')
@@ -460,7 +518,8 @@ for fname in images:
 
 # Time to try the algorithm on a video stream
 lane_detector = LaneDetector()
-video_output = 'video_output.mp4'
-clip1 = VideoFileClip("project_video.mp4").subclip(0,5)
+video_output = 'video_output2.mp4'
+clip1 = VideoFileClip("project_video.mp4")
+#clip1 = VideoFileClip("challenge_video.mp4")
 video_clip = clip1.fl_image(lane_detector.pipeline) #NOTE: this function expects color images!!
 video_clip.write_videofile(video_output, audio=False, write_logfile=False, verbose=True, threads=4)
