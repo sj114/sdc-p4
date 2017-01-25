@@ -29,8 +29,8 @@ class Lane(object):
     def _avg_n(self, a, item):
         a.append(item)
         
-        # store only last 5 sets of data
-        if len(a) > 5:
+        # store only last 10 sets of data
+        if len(a) > 10:
             a.popleft()
 
         # average the x values of the last n frames

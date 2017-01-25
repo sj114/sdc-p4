@@ -69,7 +69,7 @@ The Sobel function is used to compute the gradient of the image in the x and y d
 
 ####3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
-The code for my perspective transform includes a function called `get_perspective_transform()` and `four_point_transform`, which appears in lines 1 through 8 in the file `pipeline.py`. I chose the source and destination points in the following manner:
+The code for my perspective transform includes a function called `get_perspective_transform()` and `four_point_transform`, which appears in lines 36 through 133 in the file `pipeline.py`. I chose the source and destination points in the following manner:
 
 ```
 pts = np.array([(625, img.shape[0]-300),
@@ -87,8 +87,8 @@ This resulted in the following source and destination points:
 
 | Source        | Destination   | 
 |:-------------:|:-------------:| 
-| 530, 486      | 300, 120      | 
-| 764, 486      | 950, 120      |
+| 625, 420      | 300, 120      | 
+| 662, 420      | 950, 120      |
 | 1125, 720     | 950, 720      |
 | 200, 720      | 300, 720      |
 
@@ -98,10 +98,10 @@ This perspective transform was verified by drawing the `src` and `dst` points on
 
 ####4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
-Blind search: (`blind_identify_lane_pixels()` in `pipeline.py`)
+Blind search: (`blind_identify_lane_pixels()` in `pipeline.py`, line 255)
 * When starting from scratch, a histogram-based search is performed on the warped and thresholded image. 
 * The histogram is divided into two halves (left and right) and the peaks are identified in each half. The x-coord of the peak is taken to be the starting point to search for the lane line pixels. 
-* A sliding window of 48x48 pixels is applied around the above-computed starting point and all non-zero pixels are assumed to be potential lane line points. (`sliding_window()` in `pipeline.py`)
+* A sliding window of 48x48 pixels is applied around the above-computed starting point and all non-zero pixels are assumed to be potential lane line points. (`sliding_window()` in `pipeline.py`, line 174)
 * The histogram and peak calculations proceed by sliding the histogram window up in every iteration till the top of the warped image is reached, and the sliding window algorithm is applied to accrue potential lane line points.
 * `np.polyfit` is then used to find a second order polynomial to fit the points identified in the above algorithm.
 
@@ -109,33 +109,36 @@ Here is an example of the fitted lane line:
 
 ![alt text][image_fitted_line]
 
-Intelligent search: (`identify_lane_pixels()` in `pipeline.py`)
+Intelligent search: (`identify_lane_pixels()` in `pipeline.py`, line 305)
 * In a video stream, the lane line estimation from the previous frame can be used to aid in the detection for the current frame, since the lane location can not change significantly between two consecutive frames.
 * Instead of taking histogram of the warped images, this approach uses the fitted lane lines/curves from the previous frame and uses the same sliding window algorithm with a window of 48x48 along the previous frame's fitted curve to search for the current frame's lane line pixels. 
 * `np.polyfit` is then used to find a second order polynomial to fit the new points identified.
 
-Smoothing (`smooth_fit()` in `Lane.py`):
+Smoothing (`smooth_fit()` in `Lane.py`, line 39):
 * In order to smooth out the detection, the lane line points and polynomial fit coefficients are averaged over the previous 10 frames.
 
 ####5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
 The radius of curvature has been estimated as described in the lecture notes, however, with modifications to the 'metre to pixel' conversion based on the different projection lengths in my perspective transform.
  
-The code is at `get_radius_curvature()` in `Lane.py`.
+The code is at `get_radius_curvature()` in `Lane.py`, line 67.
 
-`       ym_per_pix = 20/720 # metres per pixel in y dimension  
-        xm_per_pix = 3.7/650 # metres per pixel in x dimension  
-` 
-
+```
+       ym_per_pix = 20/720 # metres per pixel in y dimension
+       xm_per_pix = 3.7/650 # metres per pixel in x dimension
+```
+ 
 The left lane and right lane's radii of curvature are averaged to present a single radius of curvature for the lanes.
 
-In `Lane.py`, vehicle position has been estimated by calculating the number of pixels by which the base of the lane line is separated from the center of the image. This is then multipled by the factor to convert pixels to metres. This is computed for both the left and right lanes, and the sum of it is then used to determine if the vehicle is to the left or the right off the center in `add_diag_text()` in `pipeline.py`.  
+In `Lane.py`, vehicle position has been estimated by calculating the number of pixels by which the base of the lane line is separated from the center of the image. This is then multipled by the factor to convert pixels to metres. This is computed for both the left and right lanes, and the sum of it is then used to determine if the vehicle is to the left or the right off the center in `add_diag_text()` in `pipeline.py`, line 360.  
 
-`    def get_vehicle_position(self):  
-        xm_per_pix = 3.7/700 # meteres per pixel in x dimension  
+```
+    def get_vehicle_position(self):  
+        xm_per_pix = 3.7/650 # metres per pixel in x dimension  
         pixels_off_center = int(self.get_x(np.max(self.ally)) - (1280/2))  
         self.line_base_pos = xm_per_pix * pixels_off_center  
-        return self.line_base_pos`
+        return self.line_base_pos
+```
 
 ####6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
