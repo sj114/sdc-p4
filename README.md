@@ -119,15 +119,22 @@ Smoothing (`smooth_fit()` in `Lane.py`):
 
 ####5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
-The radius of curvature has been estimated as described in the lecture notes. 
-`get_radius_curvature()` in `Lane.py`
+The radius of curvature has been estimated as described in the lecture notes, however, with modifications to the 'metre to pixel' conversion based on the different projection lengths in my perspective transform.
+ 
+The code is at `get_radius_curvature()` in `Lane.py`.
+
+`       ym_per_pix = 20/720 # metres per pixel in y dimension  
+        xm_per_pix = 3.7/650 # metres per pixel in x dimension  
+` 
+
+The left lane and right lane's radii of curvature are averaged to present a single radius of curvature for the lanes.
 
 In `Lane.py`, vehicle position has been estimated by calculating the number of pixels by which the base of the lane line is separated from the center of the image. This is then multipled by the factor to convert pixels to metres. This is computed for both the left and right lanes, and the sum of it is then used to determine if the vehicle is to the left or the right off the center in `add_diag_text()` in `pipeline.py`.  
 
-`    def get_vehicle_position(self):
-        xm_per_pix = 3.7/700 # meteres per pixel in x dimension
-        pixels_off_center = int(self.get_x(np.max(self.ally)) - (1280/2))
-        self.line_base_pos = xm_per_pix * pixels_off_center
+`    def get_vehicle_position(self):  
+        xm_per_pix = 3.7/700 # meteres per pixel in x dimension  
+        pixels_off_center = int(self.get_x(np.max(self.ally)) - (1280/2))  
+        self.line_base_pos = xm_per_pix * pixels_off_center  
         return self.line_base_pos`
 
 ####6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
@@ -144,7 +151,7 @@ Here is an example of the result on a test image:
 
 ####1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
 
-Here's a [link to video result](./project_video.mp4)
+Here's a [link to video result](./video_output.mp4)
 
 ---
 
@@ -152,5 +159,16 @@ Here's a [link to video result](./project_video.mp4)
 
 ####1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+There are various improvements I wish to work on for this project, and I hope to continue on it. Due to time constraints, I am submitting it without the improvements.
+
+Here are some of the things I wish to add:
+* Color masks to extract yellow and white features, to help with more certain lane predictions
+* Combine features from different color spaces, and image enhancements(gamma correction, contrast etc) to enhance lane lines
+* Verify width of the estimated lane. If lane width is not as expected, a blind search needs to be re-initiated
+* Currently, I do not perform sanity checks on the detected lanes, such as radius of curvature and parallelness which is causing issues with recovery when lane info is lost. Ideally, I would like to estimate the confidence in a given lane estimation and use that information to retain that estimate or fall back onto the running average best fit.
+* Improve projection length of perspective transform. In this submission, the lane projection is only about half the length of the actual lane. I have already included functions in my code to estimate vanishing points and measuring points to mathematically derive sensible source and destination points. I am still working on integrating this with the rest of the pipeline.
+
+The pipeline currently fails when there are road features that appear like lines running parallel to the actual lane lines. The above ideas for improvement should hopefully help in improving the solution for harder scenarios.
+
+  
 
